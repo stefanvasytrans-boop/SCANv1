@@ -83,7 +83,7 @@ bot.on('photo', async (ctx) => {
 });
 
 // =========================================================================
-// CONFIGURACIÓN DE WEBHOOKS (Blindada para la nube de Railway)
+// CONFIGURACIÓN DE WEBHOOKS (Con sistema Anti-Crash para Railway)
 // =========================================================================
 const webhookDomain = process.env.WEBHOOK_DOMAIN; // Debe ser https://...
 const port = process.env.PORT || 3000;
@@ -93,20 +93,34 @@ if (!webhookDomain) {
     process.exit(1);
 }
 
-// Arranque con protección de host y limpieza de cola
-bot.launch({
-    dropPendingUpdates: true, // Elimina mensajes atascados para empezar limpios
-    webhook: {
-        domain: webhookDomain,
-        port: port,
-        host: '0.0.0.0' // CRÍTICO: Obligatorio para que Railway detecte el puerto
+// Función de arranque con reintentos automáticos
+const startBot = async (retries = 5) => {
+    try {
+        await bot.launch({
+            dropPendingUpdates: true, 
+            webhook: {
+                domain: webhookDomain,
+                port: port,
+                host: '0.0.0.0'
+            }
+        });
+        console.log(`🚀 Bot levantado en puerto ${port} (Host: 0.0.0.0)`);
+        console.log(`🔗 Webhook conectado a: ${webhookDomain}`);
+    } catch (err) {
+        if (err.code === 409 && retries > 0) {
+            console.log(`⚠️ Conflicto de Railway detectado (El contenedor viejo sigue vivo).`);
+            console.log(`⏳ Reintentando en 5 segundos... (Quedan ${retries} intentos)`);
+            setTimeout(() => startBot(retries - 1), 5000);
+        } else {
+            console.error('❌ Error fatal al iniciar el webhook:', err);
+            process.exit(1);
+        }
     }
-}).then(() => {
-    console.log(`🚀 Bot levantado en puerto ${port} (Host: 0.0.0.0)`);
-    console.log(`🔗 Webhook conectado a: ${webhookDomain}`);
-}).catch((err) => {
-    console.error('❌ Error fatal al iniciar el webhook:', err);
-});
+};
 
+// Disparamos la función
+startBot();
+
+// Manejo elegante de reinicios
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

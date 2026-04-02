@@ -100,6 +100,7 @@ const startBot = async (retries = 5) => {
             dropPendingUpdates: true, 
             webhook: {
                 domain: webhookDomain,
+                hookPath: secretPath, // <-- ESTO ES LO QUE FALTABA
                 port: port,
                 host: '0.0.0.0'
             }

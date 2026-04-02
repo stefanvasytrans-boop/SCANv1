@@ -1,0 +1,13 @@
+{
+  "name": "camscanner-bot",
+  "version": "1.0.0",
+  "description": "Bot Scanner con Node y OpenCV",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "telegraf": "^4.15.3"
+  }
+}

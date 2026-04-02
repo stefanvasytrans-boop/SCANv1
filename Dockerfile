@@ -21,7 +21,7 @@ RUN npm install --omit=dev
 # 4. Instalar dependencias de Python
 COPY requirements.txt ./
 # El flag break-system-packages es necesario en Debian moderno para instalar pip global
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # 5. Copiar todo el código (bot.js y process_image.py)
 COPY . .

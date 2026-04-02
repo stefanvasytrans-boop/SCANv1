@@ -4,7 +4,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const { PDFDocument } = require('pdf-lib');
 
-// 1. Inicializar el bot
+// 1. Inicializar el bot con el Token de Railway
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.start((ctx) => ctx.reply('👋 Hola chófer. Envíame la foto del CMR y la convertiré en PDF escaneado.'));
@@ -15,10 +15,12 @@ bot.on('photo', async (ctx) => {
     try {
         const statusMsg = await ctx.reply('📥 Descargando imagen...');
 
+        // Obtener la resolución más alta
         const photoArray = ctx.message.photo;
         const bestPhoto = photoArray[photoArray.length - 1];
         const fileLink = await ctx.telegram.getFileLink(bestPhoto.file_id);
 
+        // Guardar temporalmente
         const fileName = `${ctx.message.message_id}_${Date.now()}.jpg`;
         imagePath = path.join(__dirname, 'tmp', fileName);
         
@@ -28,6 +30,7 @@ bot.on('photo', async (ctx) => {
 
         await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '⚙️ Procesando con OpenCV...');
 
+        // Ejecutar Python
         const pythonOutput = await new Promise((resolve, reject) => {
             execFile('python3', ['scanner.py', imagePath], (error, stdout) => {
                 if (error) {
@@ -43,11 +46,12 @@ bot.on('photo', async (ctx) => {
         }
 
         if (pythonOutput === 'OK_FALLBACK') {
-            await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '⚠️ Bordes del papel no detectados. Aplicando filtro B/N completo y generando PDF...');
+            await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '⚠️ Bordes no detectados. Aplicando filtro B/N y generando PDF...');
         } else {
-            await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '✅ Documento perfilado correctamente. Generando PDF...');
+            await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '✅ Documento perfilado. Generando PDF...');
         }
 
+        // Crear PDF
         const processedImageBytes = await fs.readFile(imagePath);
         const pdfDoc = await PDFDocument.create();
         const image = await pdfDoc.embedJpg(processedImageBytes);
@@ -62,16 +66,19 @@ bot.on('photo', async (ctx) => {
 
         const pdfBytes = await pdfDoc.save();
 
+        // Enviar documento
         await ctx.replyWithDocument(
             Input.fromBuffer(Buffer.from(pdfBytes), 'CMR_Escaneado.pdf')
         );
 
+        // Limpiar mensaje intermedio
         await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
 
     } catch (error) {
         console.error('Crash en pipeline:', error);
         ctx.reply('❌ Ocurrió un error al procesar el documento. Intenta que los bordes del papel se vean más oscuros o toma la foto con mejor luz.');
     } finally {
+        // Saneamiento de disco
         if (imagePath) {
             try {
                 await fs.unlink(imagePath);
@@ -83,9 +90,9 @@ bot.on('photo', async (ctx) => {
 });
 
 // =========================================================================
-// CONFIGURACIÓN DE WEBHOOKS (Con sistema Anti-Crash para Railway)
+// CONFIGURACIÓN DE WEBHOOKS 100% DEPURADA PARA RAILWAY
 // =========================================================================
-const webhookDomain = process.env.WEBHOOK_DOMAIN; // Debe ser https://...
+const webhookDomain = process.env.WEBHOOK_DOMAIN; 
 const port = process.env.PORT || 3000;
 
 if (!webhookDomain) {
@@ -93,24 +100,25 @@ if (!webhookDomain) {
     process.exit(1);
 }
 
-// Función de arranque con reintentos automáticos
 const startBot = async (retries = 5) => {
     try {
+        // Definir secretPath correctamente basándose en el bot
+        const secretPath = `/telegraf/${bot.secretPathComponent()}`;
+
         await bot.launch({
             dropPendingUpdates: true, 
             webhook: {
                 domain: webhookDomain,
-                hookPath: secretPath, // <-- ESTO ES LO QUE FALTABA
+                hookPath: secretPath,
                 port: port,
                 host: '0.0.0.0'
             }
         });
         console.log(`🚀 Bot levantado en puerto ${port} (Host: 0.0.0.0)`);
-        console.log(`🔗 Webhook conectado a: ${webhookDomain}`);
+        console.log(`🔗 Webhook conectado a: ${webhookDomain}${secretPath}`);
     } catch (err) {
         if (err.code === 409 && retries > 0) {
-            console.log(`⚠️ Conflicto de Railway detectado (El contenedor viejo sigue vivo).`);
-            console.log(`⏳ Reintentando en 5 segundos... (Quedan ${retries} intentos)`);
+            console.log(`⚠️ Conflicto de despliegue detectado. Reintentando en 5 segundos... (Quedan ${retries} intentos)`);
             setTimeout(() => startBot(retries - 1), 5000);
         } else {
             console.error('❌ Error fatal al iniciar el webhook:', err);
@@ -119,7 +127,7 @@ const startBot = async (retries = 5) => {
     }
 };
 
-// Disparamos la función
+// Arrancar el bot
 startBot();
 
 // Manejo elegante de reinicios

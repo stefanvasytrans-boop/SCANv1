@@ -4,7 +4,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const { PDFDocument } = require('pdf-lib');
 
-// El token vendrá inyectado por las Variables de Entorno de Railway
+// 1. Inicializar el bot
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.start((ctx) => ctx.reply('👋 Hola chófer. Envíame la foto del CMR y la convertiré en PDF escaneado.'));
@@ -15,25 +15,21 @@ bot.on('photo', async (ctx) => {
     try {
         const statusMsg = await ctx.reply('📥 Descargando imagen...');
 
-        // 1. Obtener la resolución más alta (último elemento del array)
         const photoArray = ctx.message.photo;
         const bestPhoto = photoArray[photoArray.length - 1];
         const fileLink = await ctx.telegram.getFileLink(bestPhoto.file_id);
 
-        // 2. Guardar temporalmente en el volumen aislado
         const fileName = `${ctx.message.message_id}_${Date.now()}.jpg`;
         imagePath = path.join(__dirname, 'tmp', fileName);
         
-        // Descarga nativa en Node 18/20
         const response = await fetch(fileLink.href);
         const buffer = await response.arrayBuffer();
         await fs.writeFile(imagePath, Buffer.from(buffer));
 
         await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '⚙️ Procesando con OpenCV...');
 
-        // 3. Ejecutar el pipeline de Python
         const pythonOutput = await new Promise((resolve, reject) => {
-            execFile('python', ['scanner.py', imagePath], (error, stdout) => {
+            execFile('python3', ['scanner.py', imagePath], (error, stdout) => {
                 if (error) {
                     reject(error);
                 } else {
@@ -46,14 +42,12 @@ bot.on('photo', async (ctx) => {
             throw new Error(`Fallo interno en Python: ${pythonOutput}`);
         }
 
-        // 4. Manejo de estados y fallback
         if (pythonOutput === 'OK_FALLBACK') {
-            await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '⚠️ Bordes del papel no detectados. Aplicando filtro escáner completo y generando PDF...');
+            await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '⚠️ Bordes del papel no detectados. Aplicando filtro B/N completo y generando PDF...');
         } else {
             await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '✅ Documento perfilado correctamente. Generando PDF...');
         }
 
-        // 5. Lectura de la imagen sobrescrita y conversión a PDF
         const processedImageBytes = await fs.readFile(imagePath);
         const pdfDoc = await PDFDocument.create();
         const image = await pdfDoc.embedJpg(processedImageBytes);
@@ -68,19 +62,16 @@ bot.on('photo', async (ctx) => {
 
         const pdfBytes = await pdfDoc.save();
 
-        // 6. Enviar documento final
         await ctx.replyWithDocument(
             Input.fromBuffer(Buffer.from(pdfBytes), 'CMR_Escaneado.pdf')
         );
 
-        // Limpiar mensajes intermedios para mejor UX
         await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
 
     } catch (error) {
         console.error('Crash en pipeline:', error);
-        ctx.reply('❌ Ocurrió un error al procesar el documento. Intenta que los bordes del papel se vean más oscuros o toma la foto desde más arriba.');
+        ctx.reply('❌ Ocurrió un error al procesar el documento. Intenta que los bordes del papel se vean más oscuros o toma la foto con mejor luz.');
     } finally {
-        // 7. Saneamiento obligatorio: Evitar saturar el disco de Railway
         if (imagePath) {
             try {
                 await fs.unlink(imagePath);
@@ -91,11 +82,31 @@ bot.on('photo', async (ctx) => {
     }
 });
 
-// Levantar el servidor
-bot.launch(() => {
-    console.log('🚀 CMR Scanner Bot inicializado y corriendo.');
+// =========================================================================
+// CONFIGURACIÓN DE WEBHOOKS (Blindada para la nube de Railway)
+// =========================================================================
+const webhookDomain = process.env.WEBHOOK_DOMAIN; // Debe ser https://...
+const port = process.env.PORT || 3000;
+
+if (!webhookDomain) {
+    console.error('❌ ERROR CRÍTICO: Falta la variable de entorno WEBHOOK_DOMAIN.');
+    process.exit(1);
+}
+
+// Arranque con protección de host y limpieza de cola
+bot.launch({
+    dropPendingUpdates: true, // Elimina mensajes atascados para empezar limpios
+    webhook: {
+        domain: webhookDomain,
+        port: port,
+        host: '0.0.0.0' // CRÍTICO: Obligatorio para que Railway detecte el puerto
+    }
+}).then(() => {
+    console.log(`🚀 Bot levantado en puerto ${port} (Host: 0.0.0.0)`);
+    console.log(`🔗 Webhook conectado a: ${webhookDomain}`);
+}).catch((err) => {
+    console.error('❌ Error fatal al iniciar el webhook:', err);
 });
 
-// Manejo elegante de reinicios en Railway
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

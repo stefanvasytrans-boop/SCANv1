@@ -144,16 +144,20 @@ const startServer = async () => {
 
         // Manejo de apagado seguro (Graceful shutdown)
         process.once('SIGINT', () => {
-            server.close();
-            bot.stop('SIGINT');
-        });
-        process.once('SIGTERM', () => {
-            server.close();
-            bot.stop('SIGTERM');
+            console.log('🛑 Recibida señal SIGINT. Apagando servidor HTTP...');
+            server.close(() => {
+                console.log('✅ Servidor cerrado correctamente.');
+                process.exit(0);
+            });
         });
 
-    } catch (err) {
-        console.error('❌ Error crítico al arrancar la infraestructura:', err);
+        process.once('SIGTERM', () => {
+            console.log('🛑 Recibida señal SIGTERM. Apagando servidor HTTP...');
+            server.close(() => {
+                console.log('✅ Servidor cerrado correctamente.');
+                process.exit(0);
+            });
+        });
         
         // Sistema Anti-Crash para los Rolling Deploys de Railway
         if (err.response && err.response.error_code === 409) {

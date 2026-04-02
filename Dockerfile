@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 4. Instalar dependencias de Node.js
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install
 
 # 5. Copiar el código fuente
 COPY . .

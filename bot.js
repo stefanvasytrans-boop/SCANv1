@@ -1,5 +1,4 @@
 require('dotenv').config();
-const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -16,44 +15,34 @@ if (!token || !rawDomain) {
 
 const domain = rawDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
 const port = process.env.PORT || 8080;
+const url = `https://${domain}/bot${token}`;
 
-const app = express();
-app.use(express.json());
-
-// Inicializamos el bot de Telegram
-const bot = new TelegramBot(token);
-const webhookUrl = `https://${domain}/bot${token}`;
+console.log("🚀 Iniciando servidor Telegram en modo Webhook...");
 
 // ==========================================
-// 🛡️ HEALTHCHECK / ANTI-SUEÑO PARA RAILWAY
+// 🔗 INICIALIZAR EL BOT CON WEBHOOK NATIVO
 // ==========================================
-app.get('/', (req, res) => {
-    console.log("🟢 Railway Healthcheck: Ping recibido. Todo OK.");
-    res.status(200).send("Bot funcionando y vivo.");
-});
-
-// ==========================================
-// 🔍 CHIVATO GLOBAL: Todo el tráfico HTTP
-// ==========================================
-app.use((req, res, next) => {
-    if (req.url !== '/') {
-        console.log(`🔍 [HTTP ENTRANTE] Método: ${req.method} | Ruta: ${req.url}`);
+// Usamos webHooks nativo en lugar de Express. Es 100% compatible con Railway.
+const bot = new TelegramBot(token, {
+    webHook: {
+        port: port,
+        host: '0.0.0.0'
     }
-    next();
 });
 
-// ==========================================
-// 📨 RUTA WEBHOOK: Donde Telegram nos habla
-// ==========================================
-app.post(`/bot${token}`, (req, res) => {
-    console.log("📨 ¡TELEGRAM HA ENVIADO UN EVENTO (UPDATE) AL WEBHOOK!");
-    // Respondemos a Telegram rápido para que no nos bloquee
-    res.sendStatus(200); 
-    // Procesamos el mensaje
-    bot.processUpdate(req.body);
+// Forzamos el registro del webhook en Telegram
+bot.setWebHook(url, { drop_pending_updates: true }).then(() => {
+    console.log(`✅ WEBHOOK CONFIRMADO: Telegram sabe que estamos en ${url}`);
+}).catch(err => {
+    console.error("❌ Error configurando Webhook:", err);
 });
 
-// Crear directorio temporal si no existe
+// Chivato de conexiones
+bot.on("webhook_error", (error) => {
+    console.error(`🚨 Error Webhook: ${error.code}`, error);
+});
+
+// Directorio temporal
 const tempDir = path.join(__dirname, 'temp');
 if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir);
@@ -132,22 +121,5 @@ bot.on('photo', async (msg) => {
     } catch (err) {
         console.error("❌ Error en bot.on('photo'):", err);
         bot.sendMessage(chatId, "❌ Ocurrió un error inesperado.");
-    }
-});
-
-// ==========================================
-// 🚀 ARRANQUE DE EXPRESS
-// ==========================================
-app.listen(port, '0.0.0.0', async () => {
-    console.log(`🚀 Servidor escuchando en puerto: ${port}`);
-    
-    try {
-        // En lugar de borrar y poner el webhook a lo bruto, usamos una forma más suave
-        // Solo lo configuramos si no está ya configurado
-        console.log(`🔗 Verificando Webhook en: ${webhookUrl}`);
-        await bot.setWebHook(webhookUrl);
-        console.log("✅ WEBHOOK CONFIRMADO.");
-    } catch (error) {
-        console.error("❌ Error configurando Webhook:", error);
     }
 });

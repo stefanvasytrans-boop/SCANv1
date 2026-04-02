@@ -142,7 +142,7 @@ const startServer = async () => {
             console.log(`✅ BOT LISTO. Puedes enviarle una foto por Telegram.`);
         });
 
-        // Manejo de apagado seguro (Graceful shutdown)
+        // Manejo de apagado seguro (Graceful shutdown) sin invocar métodos erróneos de Telegraf
         process.once('SIGINT', () => {
             console.log('🛑 Recibida señal SIGINT. Apagando servidor HTTP...');
             server.close(() => {
@@ -158,6 +158,9 @@ const startServer = async () => {
                 process.exit(0);
             });
         });
+
+    } catch (err) {
+        console.error('❌ Error crítico al arrancar la infraestructura:', err);
         
         // Sistema Anti-Crash para los Rolling Deploys de Railway
         if (err.response && err.response.error_code === 409) {
